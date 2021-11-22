@@ -98,7 +98,7 @@ class ExtensionGlobalStorage
         }
         else
         {
-            Console.WriteLine($"Field '{fieldName}' not found in storage.");
+            throw new KeyNotFoundException($"Field '{fieldName}' not found in storage.");
         }
         var newJson = storage.ToString(Newtonsoft.Json.Formatting.None);
         UpdateStorageJson(newJson);
