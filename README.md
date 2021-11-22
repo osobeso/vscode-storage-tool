@@ -13,7 +13,7 @@ Options:
   -?, -h, --help   Show help and usage information
 ```
 
-# In order to delete a field from a specific azure storage, you need to do the following:
+# In order to delete a field from a specific vscode global storage, you need to do the following:
 
 Build the solution:
 
