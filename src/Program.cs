@@ -24,7 +24,14 @@ var storage = new ExtensionGlobalStorage(path, config.Key);
 
 if (config.All)
 {
-    storage.DeleteStorage();
+    if (config.Delete)
+    {
+        storage.DeleteStorage();
+    }
+    else if(config.Show)
+    {
+        storage.PrintStorage();
+    }
 }
 else
 {
@@ -33,7 +40,22 @@ else
         Console.WriteLine("Invalid value specified.");
         return;
     }
-    storage.DeleteStorageField(config.Field);
+    if (config.Delete)
+    {
+        try
+        {
+            storage.DeleteStorageField(config.Field);
+            Console.WriteLine($"Succesfully deleted field '{config.Field}'");
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"Error ocurred: {ex}");
+        }
+        
+    }else if (config.Show)
+    {
+        storage.PrintStorageField(config.Field);
+    }
 }
 
 class ExtensionGlobalStorage
@@ -48,8 +70,9 @@ class ExtensionGlobalStorage
 
     public void DeleteStorage()
     {
-        using (var connection = new SqliteConnection($"Data Source={DbPath}"))
+        try
         {
+            using var connection = new SqliteConnection($"Data Source={DbPath}");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText =
@@ -57,7 +80,12 @@ class ExtensionGlobalStorage
                         where key = '{1}'",
                         StorageKey);
             command.ExecuteNonQuery();
+            Console.WriteLine("Storage deleted succesfully");
+        } catch(Exception ex)
+        {
+            Console.WriteLine($"Could not delete storage. Error: {ex}");
         }
+        
     }
 
     public void DeleteStorageField(string fieldName)
@@ -68,8 +96,27 @@ class ExtensionGlobalStorage
             var fieldToken = storage[fieldName]!;
             fieldToken.Parent!.Remove();
         }
+        else
+        {
+            Console.WriteLine($"Field '{fieldName}' not found in storage.");
+        }
         var newJson = storage.ToString(Newtonsoft.Json.Formatting.None);
         UpdateStorageJson(newJson);
+    }
+
+    public void PrintStorageField(string fieldName)
+    {
+        var storageJson = GetStorageJson();
+        var storage = JObject.Parse(storageJson);
+        if (storage.ContainsKey(fieldName))
+        {
+            var fieldToken = storage[fieldName]!;
+            Console.WriteLine(fieldToken.ToString());
+        }
+        else
+        {
+            Console.WriteLine($"Field '{fieldName}' not found in storage.");
+        }
     }
 
     private string GetStorageJson()
@@ -98,17 +145,15 @@ class ExtensionGlobalStorage
 
     private void UpdateStorageJson(string newJson)
     {
-        using (var connection = new SqliteConnection($"Data Source={DbPath}"))
-        {
-            connection.Open();
-            var command = connection.CreateCommand();
-            command.CommandText =
-            string.Format(@"UPDATE ItemTable
+        using var connection = new SqliteConnection($"Data Source={DbPath}");
+        connection.Open();
+        var command = connection.CreateCommand();
+        command.CommandText =
+        string.Format(@"UPDATE ItemTable
                         set value = '{0}'
                         where key = '{1}'",
-                        newJson, StorageKey);
-            command.ExecuteNonQuery();
-        }
+                    newJson, StorageKey);
+        command.ExecuteNonQuery();
     }
 
     public void PrintStorage()
@@ -127,16 +172,33 @@ static class CommandLine
         var storageKey = new Option<string>("--key", "The storage key of the extension in the format {publisher}.{name} from the values in package.json. If not provided will look for a package.json in directory and get the values from there.");
         var insidersFlag = new Option<bool>("--insiders", "When this flag is active, the program will operate over the VSCode Insiders database instead of the regular.");
         var storageValue = new Option<string>("--field", "The value to delete from the storage. When providing the --all flag, this is not required.");
+        var show = new Option<bool>("--show", "Shows the indicated field, or all the fields if the --all flag is set. Cannot be used in conjunction with --delete. When none is provided, the action is defaulted to delete.");
+        var delete = new Option<bool>("--delete", "Shows the indicated field, or all the fields if the --all flag is set. Cannot be used in conjunction with --show.");
         var all = new Option<bool>("--all", "deletes the entire record of the extension.");
 
         rootCommand.AddOption(storageKey);
         rootCommand.AddOption(insidersFlag);
         rootCommand.AddOption(storageValue);
         rootCommand.AddOption(all);
+        rootCommand.AddOption(show);
+        rootCommand.AddOption(delete);
         ClearConfiguration config = new ClearConfiguration(); // defaults but will be overriden by actual arguments.
-        rootCommand.Handler = CommandHandler.Create<ClearConfiguration>((arguments) => config = arguments);
+        rootCommand.Handler = CommandHandler.Create<ClearConfiguration>((arguments) => config = CommandLine.ValidateConfiguration(arguments));
         await rootCommand.InvokeAsync(args);
         return config!;
+    }
+
+    private static ClearConfiguration ValidateConfiguration(ClearConfiguration configuration)
+    {
+        if(configuration.Show && configuration.Delete)
+        {
+            throw new Exception("cannot have both show and delete.");
+        }
+        if(!configuration.Show && !configuration.Delete)
+        {
+            configuration.Delete = true;
+        }
+        return configuration;
     }
 }
 
@@ -146,6 +208,8 @@ class ClearConfiguration
     public bool Insiders { get; set; }
     public string Field { get; set; }
     public bool All { get; set; }
+    public bool Show { get; set; }
+    public bool Delete { get; set; }
 }
 
 static class DbPaths
